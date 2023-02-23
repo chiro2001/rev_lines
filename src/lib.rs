@@ -103,6 +103,27 @@ impl<R:Seek+Read> RevLines<R> {
 
         Ok(())
     }
+
+    /// After used, move reader out for continuously use.
+    pub fn move_reader_out(mut self) -> std::io::Result<BufReader<R>> {
+        // reset seek
+        self.reader.seek(SeekFrom::Start(0))?;
+        Ok(self.reader)
+    }
+
+    pub fn iter(&mut self) -> RevLinesIter<R> {
+        self.into()
+    }
+}
+
+pub struct RevLinesIter<'a, R> {
+    source: &'a mut RevLines<R>,
+}
+
+impl<'a, R> From<&'a mut RevLines<R>> for RevLinesIter<'a, R> {
+    fn from(source: &'a mut RevLines<R>) -> Self {
+        Self { source }
+    }
 }
 
 impl<R:Read+Seek> Iterator for RevLines<R> {
@@ -160,6 +181,14 @@ impl<R:Read+Seek> Iterator for RevLines<R> {
 
         // Convert to a String
         Some(String::from_utf8(result).unwrap())
+    }
+}
+
+impl<'a, R: Read + Seek> Iterator for RevLinesIter<'a, R> {
+    type Item = String;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.source.next().map(|x| x.to_owned())
     }
 }
 
@@ -222,5 +251,23 @@ mod tests {
         assert_eq!(rev_lines.next(), Some("GHIJK".to_string()));
         assert_eq!(rev_lines.next(), Some("ABCDEF".to_string()));
         assert_eq!(rev_lines.next(), None);
+    }
+
+    #[test]
+    fn usage_of_iterator() {
+        let file = File::open("tests/multi_line_file").unwrap();
+        let lines_expected = vec![
+            "UVWXYZ",
+            "LMNOPQRST",
+            "GHIJK",
+            "ABCDEF"
+        ];
+        let mut lines_rev = RevLines::new(BufReader::new(file)).unwrap();
+        let mut index = 0;
+        for line in lines_rev.iter() {
+            assert_eq!(line.as_str(), lines_expected[index]);
+            index += 1;
+        }
+        let _reader = lines_rev.move_reader_out().unwrap();
     }
 }
